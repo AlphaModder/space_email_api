@@ -1,7 +1,9 @@
 [package]
 name = "space_email_api"
 version = "0.1.0"
-authors = ["AlphaModder <quasiflux@gmail.com>"]
+authors = ["AlphaModder"]
+description = "A rust interface to Space Email (space.galaxybuster.net)"
+license = "MIT"
 
 [dependencies]
 hyper = "0.10.10"
