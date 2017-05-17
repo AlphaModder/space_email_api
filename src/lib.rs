@@ -15,5 +15,5 @@ mod data;
 mod tests;
 
 pub use self::client::SpaceEmailClient;
-pub use self::data::*;
+pub use self::data::{SpaceEmail, SpaceEmailContents, SpaceEmailError, SpaceEmailColor};
 

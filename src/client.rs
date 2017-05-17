@@ -6,6 +6,7 @@ use select::predicate::{Class, Attr};
 use std::io::Read;
 use hyper::Client;
 use std::cell::RefCell;
+use data::create_space_email;
 
 const GET_ENDPOINT: &'static str = "https://space.galaxybuster.net/lib/get.php";
 
@@ -111,14 +112,16 @@ impl SpaceEmailClient {
             Ok(m) => m,
             Err(e) => return Err(e)
         };
-        
-        Ok(SpaceEmail {
-            contents: SpaceEmailContents {
-                color: color,
-                .. email.contents
-            },
-            .. email
-        })
+
+        let mut contents = email.contents().clone();
+        contents.color = color;
+
+        Ok(create_space_email(
+            email.id(),
+            email.share_id(),
+            email.timestamp(),
+            contents
+        ))
     }
 
     pub fn get_id(&self, id: u32) -> Result<SpaceEmail, SpaceEmailError> {
@@ -159,17 +162,17 @@ impl SpaceEmailClient {
                 _ => return Err(SpaceEmailError::MalformedResponse("Timestamp not found".to_string()))
             };
 
-            Ok(SpaceEmail {
-                id: id,
-                timestamp: timestamp,
-                share_id: response_data[2].clone(),
-                contents: SpaceEmailContents {
+            Ok(create_space_email(
+                id,
+                &response_data[2],
+                timestamp,
+                SpaceEmailContents {
                     subject: subject.to_string(),
                     sender: sender.to_string(),
                     body: body.to_string(),
                     color: SpaceEmailColor::None,
                 }
-            })
+            ))
         }
 
         match self.make_request(VIEW_ENDPOINT, &[("id", &id.to_string())]) {

@@ -1,5 +1,5 @@
 # space\_email\_api #
-A [Rust](https://www.rust-lang.org) (via [`hyper`](https://hyper.rs/)) interface to [Space Email](https://space.galaxybuster.net) , "an indirect communication platform that allows for a unique exchange of conversation over space and time." 
+A [Rust](https://www.rust-lang.org) (via [`hyper`](https://hyper.rs/)) interface to [Space Email](https://space.galaxybuster.net), "an indirect communication platform that allows for a unique exchange of conversation over space and time." 
 
 Full documentation coming soon.
 
