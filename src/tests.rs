@@ -29,7 +29,7 @@ fn send_email() {
         sender: TEST_SENDER.to_string(),
         subject: TEST_SUBJECT.to_string(),
         body: TEST_BODY.to_string(),
-        color: SpaceEmailColor::None,
+        color: SpaceEmailColor::Yellow,
     }).unwrap();
 }
 

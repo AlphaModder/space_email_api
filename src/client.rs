@@ -6,17 +6,22 @@ use select::predicate::{Class, Attr};
 use std::io::Read;
 use hyper::Client;
 use std::cell::RefCell;
-use data::create_space_email;
 
-const GET_ENDPOINT: &'static str = "https://space.galaxybuster.net/lib/get.php";
+const LOGIN_ENDPOINT: &str = "https://space.galaxybuster.net/login.php";
 
-const VIEW_ENDPOINT: &'static str = "https://space.galaxybuster.net/lib/view.php"; 
+const LOGOUT_ENDPOINT: &str = "https://space.galaxybuster.net/logout.php";
 
-const SEND_ENDPOINT: &'static str = "https://space.galaxybuster.net/lib/send.php";
+const GET_ENDPOINT: &str = "https://space.galaxybuster.net/lib/get.php";
 
-const STAR_ENDPOINT: &'static str = "https://space.galaxybuster.net/lib/star.php";
+const VIEW_ENDPOINT: &str = "https://space.galaxybuster.net/lib/view.php"; 
 
-const UNSTAR_ENDPOINT: &'static str = "https://space.galaxybuster.net/lib/unstar.php";
+const SEND_ENDPOINT: &str = "https://space.galaxybuster.net/lib/send.php";
+
+const STAR_ENDPOINT: &str = "https://space.galaxybuster.net/lib/star.php";
+
+const UNSTAR_ENDPOINT: &str = "https://space.galaxybuster.net/lib/unstar.php";
+
+const PAGINATE_ENDPOINT: &str = "https://space.galaxybuster.net/lib/paginatestar.php";
 
 pub struct SpaceEmailClient {
     http_client: hyper::Client,
@@ -82,25 +87,43 @@ impl SpaceEmailClient {
         }
     }
     
+    pub fn login(&self, email: &str, password: &str) -> Result<(), SpaceEmailError> {
+        match self.make_request(LOGIN_ENDPOINT, &[
+            ("email", email),
+            ("password", password),
+        ]) {
+            Ok(r) => match &*r { 
+                "" => Ok(()),
+                _ => Err(SpaceEmailError::InvalidParameter),
+            },
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn logout(&self) -> Result<(), SpaceEmailError> {
+        self.make_request(LOGOUT_ENDPOINT, &[])?;
+        Ok(())
+    }
+
     pub fn get_random(&self) -> Result<SpaceEmail, SpaceEmailError> {
-        self.get_random_with_range(3)
+        self.get_random_with_range(SpaceEmailRange::All)
     }
     
-    pub fn get_random_with_range(&self, range: u32) -> Result<SpaceEmail, SpaceEmailError> {
+    pub fn get_random_in_range(&self, range: SpaceEmailRange) -> Result<SpaceEmail, SpaceEmailError> {
         fn parse_get(response: String) -> Result<(u32, SpaceEmailColor), SpaceEmailError> {
             let get_fragment = Document::from(&*response);
             match get_fragment.find(Class("row-message")).nth(0).map(
                 |n| {(
                         n.attr("data-id").map(str::parse),
-                        n.attr("class").and_then(|classes| classes.split_whitespace().find(|class| class.starts_with("msg-"))).map_or(SpaceEmailColor::None, SpaceEmailColor::from_css)
+                        n.attr("class").and_then(|classes| classes.split_whitespace().find(|class| class.starts_with("msg-"))).map_or(SpaceEmailColor::Yellow, SpaceEmailColor::from_css)
                     )}
             ) {
                 Some((Some(Ok(i)), c)) => Ok((i, c)),
-                _ => Err(SpaceEmailError::MalformedResponse("Unable to parse view response".to_string()))
+                _ => Err(SpaceEmailError::MalformedResponse("Unable to parse get response".to_string()))
             }
         }
 
-        let (id, color) = match self.make_request(GET_ENDPOINT, &[("range", &range.to_string())]) {
+        let (id, color) = match self.make_request(GET_ENDPOINT, &[("range", &range.into_id().to_string())]) {
             Ok(r) => match parse_get(r) {
                 Ok(g) => g,
                 Err(e) => return Err(e)
@@ -113,15 +136,13 @@ impl SpaceEmailClient {
             Err(e) => return Err(e)
         };
 
-        let mut contents = email.contents().clone();
-        contents.color = color;
-
-        Ok(create_space_email(
-            email.id(),
-            email.share_id(),
-            email.timestamp(),
-            contents
-        ))
+        Ok(SpaceEmail {
+            contents: SpaceEmailContents {
+                color: color,
+                .. email.contents().clone()
+            },
+            .. email
+        })
     }
 
     pub fn get_id(&self, id: u32) -> Result<SpaceEmail, SpaceEmailError> {
@@ -162,17 +183,17 @@ impl SpaceEmailClient {
                 _ => return Err(SpaceEmailError::MalformedResponse("Timestamp not found".to_string()))
             };
 
-            Ok(create_space_email(
-                id,
-                &response_data[2],
-                timestamp,
-                SpaceEmailContents {
+            Ok(SpaceEmail {
+                id: id,
+                share_id: response_data[2].clone(),
+                timestamp: timestamp,
+                contents: SpaceEmailContents {
                     subject: subject.to_string(),
                     sender: sender.to_string(),
                     body: body.to_string(),
-                    color: SpaceEmailColor::None,
+                    color: SpaceEmailColor::Yellow,
                 }
-            ))
+            })
         }
 
         match self.make_request(VIEW_ENDPOINT, &[("id", &id.to_string())]) {
@@ -202,4 +223,91 @@ impl SpaceEmailClient {
         }
     }
     
+    pub fn star(&self, email: &SpaceEmail) -> Result<(), SpaceEmailError> {
+        match self.make_request(STAR_ENDPOINT, &[("id", &email.id().to_string())]) {
+            Err(e) => Err(e),
+            Ok(_) => Ok(()),
+        }
+    }
+
+    pub fn unstar(&self, email: &SpaceEmail) -> Result<(), SpaceEmailError> {
+        match self.make_request(UNSTAR_ENDPOINT, &[("id", &email.id().to_string())]) {
+            Err(e) => Err(e),
+            Ok(_) => Ok(()),
+        }
+    }
+
+    pub fn get_starred_emails(&self) -> StarredIterator {
+        StarredIterator {
+            client: self,
+            page: 1,
+            buffer: Vec::new(),
+        }
+    }
+    
 }
+
+pub struct StarredIterator<'a> {
+    client: &'a SpaceEmailClient, 
+    page: u32,
+    buffer: Vec<(u32, SpaceEmailColor)>,
+}
+
+impl<'a> Iterator for StarredIterator<'a> {
+    type Item = Result<SpaceEmail, SpaceEmailError>;
+    fn next(&mut self) -> Option<Result<SpaceEmail, SpaceEmailError>> {
+        fn parse_paginate(response: String, buffer: &mut Vec<(u32, SpaceEmailColor)>) -> Result<(), SpaceEmailError> {
+            let paginate_fragment = Document::from(&*response);
+            let emails = paginate_fragment
+                .find(Class("row-message"))
+                .map(
+                    |n| {(
+                        n.attr("data-id").map(str::parse),
+                        n.attr("class").and_then(|classes| classes.split_whitespace().find(|class| class.starts_with("msg-"))).map_or(SpaceEmailColor::Yellow, SpaceEmailColor::from_css)
+                    )}
+                );
+            for email in emails {
+                if let (Some(Ok(id)), color) = email {
+                    buffer.push((id, color));
+                }
+                else {
+                    return Err(SpaceEmailError::MalformedResponse("Unable to parse paginate response!".to_string()));
+                }
+            }
+            Ok(())
+        }
+
+        if self.buffer.is_empty() {
+            match self.client.make_request(PAGINATE_ENDPOINT, &[("page", &self.page.to_string())]) {
+                Err(e) => return Some(Err(e)),
+                Ok(r) => { 
+                    if let Err(e) = parse_paginate(r, &mut self.buffer) {
+                        return Some(Err(e))
+                    } 
+                    else {
+                        self.page += 1;
+                    } 
+                }
+            }
+            if self.buffer.is_empty() {
+                return None
+            }
+        }
+
+        let email_data = self.buffer.remove(0);
+        match self.client.get_id(email_data.0) {
+            Ok(email) => Some(Ok(SpaceEmail {
+                contents: SpaceEmailContents {
+                    color: email_data.1,
+                    .. email.contents().clone()
+                },
+                .. email
+            })),
+            Err(e) => {
+                self.buffer.insert(0, email_data);
+                Some(Err(e))
+            }
+        }
+    }
+}
+

@@ -1,10 +1,9 @@
 use chrono;
 use hyper;
-use std::hash::{Hasher, Hash};
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub enum SpaceEmailColor {
-    None,
+    Yellow,
     Red,
     Lime,
     Cyan,
@@ -14,9 +13,7 @@ pub enum SpaceEmailColor {
 }
 
 impl SpaceEmailColor {
-    
-    pub fn from_css(class: &str) -> SpaceEmailColor {
-        
+    pub(crate) fn from_css(class: &str) -> SpaceEmailColor {
         match class {
             "msg-red" => SpaceEmailColor::Red,
             "msg-lime" => SpaceEmailColor::Lime,
@@ -24,13 +21,13 @@ impl SpaceEmailColor {
             "msg-blue" => SpaceEmailColor::Blue,
             "msg-white" => SpaceEmailColor::White,
             "msg-pink" => SpaceEmailColor::Pink,
-            _ => SpaceEmailColor::None
+            _ => SpaceEmailColor::Yellow
         }
     }
     
-    pub fn into_id(&self) -> u32 {
+    pub(crate) fn into_id(&self) -> u32 {
         match *self {
-            SpaceEmailColor::None => 0,
+            SpaceEmailColor::Yellow => 0,
             SpaceEmailColor::Red => 1,
             SpaceEmailColor::Lime => 2,
             SpaceEmailColor::Cyan => 3,
@@ -42,7 +39,7 @@ impl SpaceEmailColor {
     
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct SpaceEmailContents {
     pub subject: String,
     pub sender: String,
@@ -50,18 +47,12 @@ pub struct SpaceEmailContents {
     pub color: SpaceEmailColor,
 }
 
-impl PartialEq for SpaceEmailContents {
-    fn eq(&self, other: &SpaceEmailContents) -> bool {
-        self.subject.eq(&other.subject) && self.sender.eq(&other.sender) && self.body.eq(&other.body)
-    }
-}
-
-#[derive(Debug, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub struct SpaceEmail {
-    id: u32,
-    share_id: String,
-    timestamp: chrono::NaiveDateTime,
-    contents: SpaceEmailContents,
+    pub(crate) id: u32,
+    pub(crate) share_id: String,
+    pub(crate) timestamp: chrono::NaiveDateTime,
+    pub(crate) contents: SpaceEmailContents,
 }
 
 impl SpaceEmail {
@@ -78,12 +69,23 @@ impl SpaceEmail {
 
 }
 
-impl Hash for SpaceEmail {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.id.hash(state) }
+#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
+pub enum SpaceEmailRange {
+    Today,
+    Week,
+    Month,
+    All
 }
 
-impl PartialEq for SpaceEmail {
-    fn eq(&self, other: &SpaceEmail) -> bool { self.id == other.id }
+impl SpaceEmailRange {
+    pub(crate) fn into_id(&self) -> u32 {
+        match *self {
+            SpaceEmailRange::Today => 0,
+            SpaceEmailRange::Week => 1,
+            SpaceEmailRange::Month => 2,
+            SpaceEmailRange::All => 3,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -91,8 +93,5 @@ pub enum SpaceEmailError {
     Network(hyper::error::Error),
     MalformedResponse(String),
     InvalidParameter,
-}
-
-pub fn create_space_email(id: u32, share_id: &str, timestamp: chrono::NaiveDateTime, contents: SpaceEmailContents) -> SpaceEmail {
-    SpaceEmail { id: id, share_id: share_id.to_string(), timestamp: timestamp, contents: contents }
+    RequiresLogin,
 }

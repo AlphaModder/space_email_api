@@ -1,6 +1,6 @@
 [package]
 name = "space_email_api"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["AlphaModder"]
 description = "A rust interface to Space Email (space.galaxybuster.net)"
 license = "MIT"
