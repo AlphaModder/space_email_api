@@ -1,16 +1,20 @@
 [package]
 name = "space_email_api"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["AlphaModder"]
 description = "A rust interface to Space Email (space.galaxybuster.net)"
 license = "MIT"
 
 [dependencies]
-hyper = "0.10.10"
-hyper-native-tls = "0.2.2"
-chrono = "0.3"
+hyper = "0.11.0"
+futures = "0.1"
+chrono = "0.4"
 regex = "0.2"
-serde_json = "0.9.10"
-select = "0.4.0"
-url = "1.4.0"
-lazy_static = "0.2"
+serde_json = "1.0"
+select = "0.4"
+url = "1.6"
+lazy_static = "1.0"
+serde = { version = "1.0", optional = true, features = ["derive"] }
+
+[dev-dependencies]
+tokio-core = "0.1"

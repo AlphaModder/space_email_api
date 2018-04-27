@@ -1,121 +1,121 @@
 use super::data::*;
+
 use hyper;
 use chrono;
+
+use futures;
+use futures::prelude::*;
+
 use select::document::Document;
 use select::predicate::{Class, Attr};
-use std::io::Read;
-use hyper::Client;
-use std::cell::RefCell;
 
-const LOGIN_ENDPOINT: &str = "https://space.galaxybuster.net/login.php";
+use std::cell::{Cell, RefCell};
+use std::str;
 
-const LOGOUT_ENDPOINT: &str = "https://space.galaxybuster.net/logout.php";
+use hyper::Uri;
 
-const GET_ENDPOINT: &str = "https://space.galaxybuster.net/lib/get.php";
+type SpaceFuture<'a, I> = Box<Future<Item=I, Error=SpaceEmailError> + 'a>;
 
-const VIEW_ENDPOINT: &str = "https://space.galaxybuster.net/lib/view.php"; 
+lazy_static! {
+    static ref LOGIN_ENDPOINT: Uri = "https://space.galaxybuster.net/login.php".parse().unwrap();
 
-const SEND_ENDPOINT: &str = "https://space.galaxybuster.net/lib/send.php";
+    static ref LOGOUT_ENDPOINT: Uri = "https://space.galaxybuster.net/logout.php".parse().unwrap();
 
-const STAR_ENDPOINT: &str = "https://space.galaxybuster.net/lib/star.php";
+    static ref GET_ENDPOINT: Uri = "https://space.galaxybuster.net/lib/get.php".parse().unwrap();
 
-const UNSTAR_ENDPOINT: &str = "https://space.galaxybuster.net/lib/unstar.php";
+    static ref VIEW_ENDPOINT: Uri = "https://space.galaxybuster.net/lib/view.php".parse().unwrap(); 
 
-const PAGINATE_ENDPOINT: &str = "https://space.galaxybuster.net/lib/paginatestar.php";
+    static ref SEND_ENDPOINT: Uri = "https://space.galaxybuster.net/lib/send.php".parse().unwrap();
 
-pub struct SpaceEmailClient {
-    http_client: hyper::Client,
-    session_id: RefCell<Option<String>>,
+    static ref STAR_ENDPOINT: Uri = "https://space.galaxybuster.net/lib/star.php".parse().unwrap();
+
+    static ref UNSTAR_ENDPOINT: Uri = "https://space.galaxybuster.net/lib/unstar.php".parse().unwrap();
+
+    static ref PAGINATE_ENDPOINT: Uri = "https://space.galaxybuster.net/lib/paginatestar.php".parse().unwrap();
 }
 
-impl SpaceEmailClient {
-    fn make_request(&self, endpoint: &str, parameters: &[(&str, &str)]) -> Result<String, SpaceEmailError> {
+pub struct SpaceEmailClient<C: hyper::client::Connect> {
+    http_client: hyper::Client<C>,
+    session_id: RefCell<Option<String>>,
+    logged_in: Cell<bool>,
+}
 
-        use hyper::header::Headers;
-        use hyper::header::{ContentType, UserAgent, Cookie, SetCookie};
+impl<C: hyper::client::Connect> SpaceEmailClient<C> {
+    fn make_request<'a>(&'a self, endpoint: &Uri, parameters: &[(&str, &str)]) -> SpaceFuture<'a, String> {
+        fn form_encode(pairs: &[(&str, &str)]) -> String {
+            ::url::form_urlencoded::Serializer::new(String::new()).extend_pairs(pairs).finish()
+        }
+
         use regex::Regex;
 
         lazy_static! {
             static ref SESSION_REGEX: Regex = Regex::new("PHPSESSID=([0-9a-f]+)").unwrap();
         }
 
-        fn form_encode(pairs: &[(&str, &str)]) -> String {
-            use url;
-            url::form_urlencoded::Serializer::new(String::new()).extend_pairs(pairs).finish()
-        }
-        
-        let mut headers = Headers::new();
-        headers.set(ContentType("application/x-www-form-urlencoded".parse().unwrap()));
-        headers.set(UserAgent("SpaceEmail API Client".to_string()));
+        use hyper::{Request, Method};
+        use hyper::header::{ContentType, UserAgent, Cookie, SetCookie};
 
-        if let Some(id) = self.session_id.borrow().clone() {
-            headers.set(Cookie(vec![format!("PHPSESSID={}", id)]));
-        }
-
-        match self.http_client.post(endpoint)
-            .headers(headers)
-            .body(&form_encode(parameters))
-            .send()
+        let mut request = Request::new(Method::Post, endpoint.clone());
         {
-            Ok(mut response) => {
-                if let Some(&SetCookie(ref cookies)) = response.headers.get() {
+            let headers = request.headers_mut();
+            headers.set(ContentType::form_url_encoded());
+            headers.set(UserAgent::new("SpaceEmail API Client"));
+            if let Some(id) = self.session_id.borrow().clone() {
+                let mut cookie = Cookie::new();
+                cookie.append("PHPSESSID", id);
+                headers.set(cookie);
+            }
+        }
+        request.set_body(form_encode(parameters));
+
+        Box::new(
+            self.http_client.request(request).from_err::<SpaceEmailError>().and_then(move |r| {
+                if let Some(&SetCookie(ref cookies)) = r.headers().get() {
                     if let Some(id) = SESSION_REGEX.captures(&cookies[0]).and_then(|c| c.get(1)) {
                         *self.session_id.borrow_mut() = Some(id.as_str().to_string());
                     }
                 }
-
-                let mut response_body = String::new();
-                match response.read_to_string(&mut response_body) { 
-                    Ok(_) => Ok(response_body),
-                    Err(_) => Err(SpaceEmailError::MalformedResponse("Response encoding error".to_string()))
-                }
-            },
-            Err(e) => Err(SpaceEmailError::Network(e))
-        }
+                r.body().concat2().from_err::<SpaceEmailError>()
+            }).and_then(|data| Ok(str::from_utf8(&data)?.to_owned()))
+        )
     }
 }
 
-impl SpaceEmailClient {
+impl<C: hyper::client::Connect> SpaceEmailClient<C> {
     
-    pub fn new() -> SpaceEmailClient {
-        use hyper::net::HttpsConnector;
-        use hyper_native_tls::NativeTlsClient;
-
+    pub fn new(http_client: hyper::Client<C>) -> SpaceEmailClient<C> {
         SpaceEmailClient {
-            http_client: Client::with_connector(HttpsConnector::new(NativeTlsClient::new().unwrap())),
-            session_id: RefCell::new(None)
+            http_client: http_client,
+            session_id: RefCell::new(None),
+            logged_in: Cell::new(false),
         }
     }
     
-    pub fn login(&self, email: &str, password: &str) -> Result<(), SpaceEmailError> {
-        match self.make_request(LOGIN_ENDPOINT, &[
+    pub fn login(&self, email: &str, password: &str) -> SpaceFuture<()> {
+        Box::new(self.make_request(&LOGIN_ENDPOINT, &[
             ("email", email),
             ("password", password),
-        ]) {
-            Ok(r) => match &*r { 
-                "" => Ok(()),
-                _ => Err(SpaceEmailError::InvalidParameter),
-            },
-            Err(e) => Err(e),
-        }
+        ]).and_then(move |r| match &*r { 
+            "" => { self.logged_in.set(true); Ok(()) }
+            _ => Err(SpaceEmailError::InvalidParameter),
+        }))
     }
 
-    pub fn logout(&self) -> Result<(), SpaceEmailError> {
-        self.make_request(LOGOUT_ENDPOINT, &[])?;
-        Ok(())
+    pub fn logout(&self) -> SpaceFuture<()> {
+        Box::new(self.make_request(&LOGOUT_ENDPOINT, &[]).map(move |r| { self.logged_in.set(false); }))
     }
 
-    pub fn get_random(&self) -> Result<SpaceEmail, SpaceEmailError> {
-        self.get_random_with_range(SpaceEmailRange::All)
+    pub fn get_random(&self) -> SpaceFuture<SpaceEmail> {
+        self.get_random_in_range(SpaceEmailRange::All)
     }
     
-    pub fn get_random_in_range(&self, range: SpaceEmailRange) -> Result<SpaceEmail, SpaceEmailError> {
-        fn parse_get(response: String) -> Result<(u32, SpaceEmailColor), SpaceEmailError> {
+    pub fn get_random_in_range(&self, range: SpaceEmailRange) -> SpaceFuture<SpaceEmail> {
+        fn parse_get(response: String) -> Result<(u32, SpaceEmailStyle), SpaceEmailError> {
             let get_fragment = Document::from(&*response);
             match get_fragment.find(Class("row-message")).nth(0).map(
                 |n| {(
                         n.attr("data-id").map(str::parse),
-                        n.attr("class").and_then(|classes| classes.split_whitespace().find(|class| class.starts_with("msg-"))).map_or(SpaceEmailColor::Yellow, SpaceEmailColor::from_css)
+                        n.attr("class").and_then(|classes| classes.split_whitespace().find(|class| class.starts_with("msg-") || *class == "admin")).map_or(SpaceEmailStyle::Yellow, SpaceEmailStyle::from_css)
                     )}
             ) {
                 Some((Some(Ok(i)), c)) => Ok((i, c)),
@@ -123,29 +123,23 @@ impl SpaceEmailClient {
             }
         }
 
-        let (id, color) = match self.make_request(GET_ENDPOINT, &[("range", &range.into_id().to_string())]) {
-            Ok(r) => match parse_get(r) {
-                Ok(g) => g,
-                Err(e) => return Err(e)
-            },
-            Err(e) => return Err(e)
-        };
-        
-        let email = match self.get_id(id) {
-            Ok(m) => m,
-            Err(e) => return Err(e)
-        };
-
-        Ok(SpaceEmail {
-            contents: SpaceEmailContents {
-                color: color,
-                .. email.contents().clone()
-            },
-            .. email
-        })
+        Box::new(self.make_request(&GET_ENDPOINT, &[("range", &range.into_id().to_string())])
+            .and_then(|r| { parse_get(r) })
+            .and_then(move |(id, style)| { 
+                self.get_by_id(id).map(move |email| {
+                    SpaceEmail {
+                        contents: SpaceEmailContents {
+                            style: style,
+                            .. email.contents().clone()
+                        },
+                        .. email
+                    }
+                })
+            })
+        )
     }
 
-    pub fn get_id(&self, id: u32) -> Result<SpaceEmail, SpaceEmailError> {
+    pub fn get_by_id(&self, id: u32) -> SpaceFuture<SpaceEmail> {
         fn parse_view(response: String, id: u32) -> Result<SpaceEmail, SpaceEmailError> {
             use serde_json;
             fn parse_timestamp(date: &str) -> Result<chrono::NaiveDateTime, chrono::format::ParseError> {
@@ -191,123 +185,180 @@ impl SpaceEmailClient {
                     subject: subject.to_string(),
                     sender: sender.to_string(),
                     body: body.to_string(),
-                    color: SpaceEmailColor::Yellow,
+                    style: SpaceEmailStyle::Yellow,
                 }
             })
         }
 
-        match self.make_request(VIEW_ENDPOINT, &[("id", &id.to_string())]) {
-            Ok(r) => parse_view(r, id),
-            Err(e) => Err(e)
-        }
+        Box::new(self.make_request(&VIEW_ENDPOINT, &[("id", &id.to_string())]).and_then(move |r| parse_view(r, id)))
     }
     
-    pub fn send(&self, email: &SpaceEmailContents) -> Result<(), SpaceEmailError> {
-        if email.sender == "" || email.subject == "" || email.body == "" {
-            return Err(SpaceEmailError::InvalidParameter)
-        }
-        
-        match self.make_request(SEND_ENDPOINT, &[
-            ("sender", &email.sender), 
-            ("subject", &email.subject), 
-            ("body", &email.body), 
-            ("type", &email.color.into_id().to_string())])
-        {
-            Ok(r) => {
-                match &*r {
-                    "wrap success" => Ok(()),
-                    _ => Err(SpaceEmailError::InvalidParameter)
-                }
+    pub fn send(&self, email: &SpaceEmailContents) -> SpaceFuture<()> {
+        let email = email.clone();
+        let email2 = email.clone(); // this is a terrible hack but futures are annoying
+        Box::new(futures::lazy(move || {
+            if email.sender == "" || email.subject == "" || email.body == "" || email.style == SpaceEmailStyle::Admin {
+                return Err(SpaceEmailError::InvalidParameter)
             }
-            Err(e) => Err(e)
-        }
+
+            if !self.logged_in.get() && email.style != SpaceEmailStyle::Yellow {
+                return Err(SpaceEmailError::RequiresLogin)
+            }
+            Ok(())
+        }).and_then(move |_| {
+            self.make_request(&SEND_ENDPOINT, &[
+                ("sender", &email2.sender), 
+                ("subject", &email2.subject), 
+                ("body", &email2.body), 
+                ("type", &email2.style.into_id().unwrap().to_string())
+            ])
+        }).and_then(|r| {
+            match &*r {
+                "wrap success" => Ok(()),
+                _ => Err(SpaceEmailError::InvalidParameter)
+            }
+        }))
     }
     
-    pub fn star(&self, email: &SpaceEmail) -> Result<(), SpaceEmailError> {
-        match self.make_request(STAR_ENDPOINT, &[("id", &email.id().to_string())]) {
-            Err(e) => Err(e),
-            Ok(_) => Ok(()),
-        }
+    pub fn star(&self, email: &SpaceEmail) -> SpaceFuture<()> {
+        let id = email.id;
+        Box::new(futures::lazy(
+            move || {if !self.logged_in.get() { Err(SpaceEmailError::RequiresLogin) } else { Ok(()) }
+        }).and_then(move |_| {
+            self.make_request(&STAR_ENDPOINT, &[("id", &id.to_string())]).map(|_| ())
+        }))
     }
 
-    pub fn unstar(&self, email: &SpaceEmail) -> Result<(), SpaceEmailError> {
-        match self.make_request(UNSTAR_ENDPOINT, &[("id", &email.id().to_string())]) {
-            Err(e) => Err(e),
-            Ok(_) => Ok(()),
-        }
+    pub fn unstar(&self, email: &SpaceEmail) -> SpaceFuture<()> {
+        let id = email.id;
+        Box::new(futures::lazy(
+            move || {if !self.logged_in.get() { Err(SpaceEmailError::RequiresLogin) } else { Ok(()) }
+        }).and_then(move |_| {
+            self.make_request(&UNSTAR_ENDPOINT, &[("id", &id.to_string())]).map(|_| ())
+        }))
     }
 
-    pub fn get_starred_emails(&self) -> StarredIterator {
+    pub fn starred_emails(&self) -> StarredIterator<C> {
         StarredIterator {
             client: self,
             page: 1,
             buffer: Vec::new(),
+            state: Mappable::new(StarredIteratorState::Draining),
         }
     }
-    
 }
 
-pub struct StarredIterator<'a> {
-    client: &'a SpaceEmailClient, 
+
+pub struct StarredIterator<'a, C: hyper::client::Connect> {
+    client: &'a SpaceEmailClient<C>, 
     page: u32,
-    buffer: Vec<(u32, SpaceEmailColor)>,
+    buffer: Vec<(u32, SpaceEmailStyle)>,
+    state: Mappable<StarredIteratorState<'a>>,
 }
 
-impl<'a> Iterator for StarredIterator<'a> {
-    type Item = Result<SpaceEmail, SpaceEmailError>;
-    fn next(&mut self) -> Option<Result<SpaceEmail, SpaceEmailError>> {
-        fn parse_paginate(response: String, buffer: &mut Vec<(u32, SpaceEmailColor)>) -> Result<(), SpaceEmailError> {
+enum StarredIteratorState<'a> {
+    Buffering(SpaceFuture<'a, Vec<(u32, SpaceEmailStyle)>>),
+    Draining,
+    Getting(SpaceFuture<'a, SpaceEmail>),
+}
+
+impl<'a, C: hyper::client::Connect> Stream for StarredIterator<'a, C> {
+    type Item = SpaceEmail;
+    type Error = SpaceEmailError;
+    fn poll(&mut self) -> Result<Async<Option<Self::Item>>, Self::Error> {
+        if !self.client.logged_in.get() { return Err(SpaceEmailError::RequiresLogin) }
+        fn parse_paginate(response: String) -> Result<Vec<(u32, SpaceEmailStyle)>, SpaceEmailError> {
             let paginate_fragment = Document::from(&*response);
+            let mut buffer = Vec::new();
             let emails = paginate_fragment
                 .find(Class("row-message"))
                 .map(
                     |n| {(
                         n.attr("data-id").map(str::parse),
-                        n.attr("class").and_then(|classes| classes.split_whitespace().find(|class| class.starts_with("msg-"))).map_or(SpaceEmailColor::Yellow, SpaceEmailColor::from_css)
+                        n.attr("class").and_then(|classes| classes.split_whitespace().find(|class| class.starts_with("msg-"))).map_or(SpaceEmailStyle::Yellow, SpaceEmailStyle::from_css)
                     )}
                 );
             for email in emails {
-                if let (Some(Ok(id)), color) = email {
-                    buffer.push((id, color));
+                if let (Some(Ok(id)), style) = email {
+                    buffer.push((id, style));
                 }
                 else {
-                    return Err(SpaceEmailError::MalformedResponse("Unable to parse paginate response!".to_string()));
+                    return Err(SpaceEmailError::MalformedResponse("Unable to parse paginate response.".to_string()));
                 }
             }
-            Ok(())
+            Ok(buffer)
         }
 
-        if self.buffer.is_empty() {
-            match self.client.make_request(PAGINATE_ENDPOINT, &[("page", &self.page.to_string())]) {
-                Err(e) => return Some(Err(e)),
-                Ok(r) => { 
-                    if let Err(e) = parse_paginate(r, &mut self.buffer) {
-                        return Some(Err(e))
-                    } 
+        let mut ret = Ok(Async::NotReady);
+        let StarredIterator {ref mut client, ref mut page, ref mut buffer, ref mut state} = self;
+        state.map(|state| {
+            match state {
+                StarredIteratorState::Draining => {
+                    if buffer.is_empty() {
+                        StarredIteratorState::Buffering(
+                            Box::new(client.make_request(&PAGINATE_ENDPOINT, &[("page", &page.to_string())]).and_then(parse_paginate))
+                        )
+                    }
                     else {
-                        self.page += 1;
-                    } 
+                        let email_data = buffer[0];
+                        StarredIteratorState::Getting(
+                            Box::new(client.get_by_id(email_data.0).then(move |result| {
+                                match result {
+                                    Ok(email) => Ok(SpaceEmail {
+                                        contents: SpaceEmailContents {
+                                            style: email_data.1,
+                                            .. email.contents().clone()
+                                        },
+                                        .. email
+                                    }),
+                                    Err(e) => {
+                                        Err(e)
+                                    }
+                                }
+                            }))
+                        )
+                    }
+                }
+                StarredIteratorState::Buffering(mut future) => {
+                    match future.poll() {
+                        Ok(Async::Ready(v)) => {
+                            if !v.is_empty() {
+                                *buffer = v;
+                                *page += 1;
+                                StarredIteratorState::Draining
+                            }
+                            else {
+                                ret = Ok(Async::Ready(None));
+                                StarredIteratorState::Buffering(future)
+                            }
+                        }
+                        Ok(Async::NotReady) => StarredIteratorState::Buffering(future),
+                        Err(e) => {ret = Err(e); StarredIteratorState::Buffering(future)},
+                    }
+                }
+                StarredIteratorState::Getting(mut future) => {
+                    match future.poll() {
+                        Ok(Async::Ready(email)) => { 
+                            buffer.remove(0);
+                            ret = Ok(Async::Ready(Some(email))); 
+                            StarredIteratorState::Draining 
+                        },
+                        Ok(Async::NotReady) => StarredIteratorState::Getting(future),
+                        Err(e) => {ret = Err(e); StarredIteratorState::Getting(future)},
+                    }
                 }
             }
-            if self.buffer.is_empty() {
-                return None
-            }
-        }
-
-        let email_data = self.buffer.remove(0);
-        match self.client.get_id(email_data.0) {
-            Ok(email) => Some(Ok(SpaceEmail {
-                contents: SpaceEmailContents {
-                    color: email_data.1,
-                    .. email.contents().clone()
-                },
-                .. email
-            })),
-            Err(e) => {
-                self.buffer.insert(0, email_data);
-                Some(Err(e))
-            }
-        }
+        });
+        ret
     }
 }
 
+struct Mappable<T>(Option<T>);
+
+impl<T> Mappable<T> {
+    fn new(value: T) -> Mappable<T> { Mappable(Some(value)) }
+
+    fn map<F: FnOnce(T) -> T>(&mut self, f: F) {
+        self.0 = Some(f(self.0.take().unwrap()));
+    }
+}

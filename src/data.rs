@@ -1,8 +1,13 @@
 use chrono;
 use hyper;
+use std::error::Error;
+use std::convert::From;
+use std::str::Utf8Error;
+use std::fmt;
 
-#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
-pub enum SpaceEmailColor {
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub enum SpaceEmailStyle {
     Yellow,
     Red,
     Lime,
@@ -10,44 +15,48 @@ pub enum SpaceEmailColor {
     Blue,
     White,
     Pink,
+    Admin,
 }
 
-impl SpaceEmailColor {
-    pub(crate) fn from_css(class: &str) -> SpaceEmailColor {
+impl SpaceEmailStyle {
+    pub(crate) fn from_css(class: &str) -> SpaceEmailStyle {
         match class {
-            "msg-red" => SpaceEmailColor::Red,
-            "msg-lime" => SpaceEmailColor::Lime,
-            "msg-cyan" => SpaceEmailColor::Cyan,
-            "msg-blue" => SpaceEmailColor::Blue,
-            "msg-white" => SpaceEmailColor::White,
-            "msg-pink" => SpaceEmailColor::Pink,
-            _ => SpaceEmailColor::Yellow
+            "msg-red" => SpaceEmailStyle::Red,
+            "msg-lime" => SpaceEmailStyle::Lime,
+            "msg-cyan" => SpaceEmailStyle::Cyan,
+            "msg-blue" => SpaceEmailStyle::Blue,
+            "msg-white" => SpaceEmailStyle::White,
+            "msg-pink" => SpaceEmailStyle::Pink,
+            "admin" => SpaceEmailStyle::Admin,
+            _ => SpaceEmailStyle::Yellow
         }
     }
     
-    pub(crate) fn into_id(&self) -> u32 {
+    pub(crate) fn into_id(&self) -> Option<u32> {
         match *self {
-            SpaceEmailColor::Yellow => 0,
-            SpaceEmailColor::Red => 1,
-            SpaceEmailColor::Lime => 2,
-            SpaceEmailColor::Cyan => 3,
-            SpaceEmailColor::Blue => 4,
-            SpaceEmailColor::White => 5,
-            SpaceEmailColor::Pink => 6,
+            SpaceEmailStyle::Yellow => Some(0),
+            SpaceEmailStyle::Red => Some(1),
+            SpaceEmailStyle::Lime => Some(2),
+            SpaceEmailStyle::Cyan => Some(3),
+            SpaceEmailStyle::Blue => Some(4),
+            SpaceEmailStyle::White => Some(5),
+            SpaceEmailStyle::Pink => Some(6),
+            SpaceEmailStyle::Admin => None,
         }
     }
     
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct SpaceEmailContents {
     pub subject: String,
     pub sender: String,
     pub body: String,
-    pub color: SpaceEmailColor,
+    pub style: SpaceEmailStyle,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Eq, PartialEq, Hash, Debug)]
 pub struct SpaceEmail {
     pub(crate) id: u32,
     pub(crate) share_id: String,
@@ -69,7 +78,8 @@ impl SpaceEmail {
 
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum SpaceEmailRange {
     Today,
     Week,
@@ -90,8 +100,53 @@ impl SpaceEmailRange {
 
 #[derive(Debug)]
 pub enum SpaceEmailError {
-    Network(hyper::error::Error),
+    Network(hyper::Error),
     MalformedResponse(String),
+    Encoding(Utf8Error),
     InvalidParameter,
     RequiresLogin,
+}
+
+impl From<hyper::Error> for SpaceEmailError {
+    fn from(error: hyper::Error) -> SpaceEmailError {
+        SpaceEmailError::Network(error)
+    }
+}
+
+impl From<Utf8Error> for SpaceEmailError {
+    fn from(error: Utf8Error) -> SpaceEmailError {
+        SpaceEmailError::Encoding(error)
+    }
+}
+
+impl fmt::Display for SpaceEmailError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            SpaceEmailError::Network(ref e) => e.fmt(f),
+            SpaceEmailError::MalformedResponse(ref s) => write!(f, "Recieved malformed response: {}", s),
+            SpaceEmailError::Encoding(ref e) => e.fmt(f),
+            SpaceEmailError::InvalidParameter => write!(f, "Invalid parameter."),
+            SpaceEmailError::RequiresLogin => write!(f, "Operation requires the client to be logged in to an account.")
+        }
+    }
+}
+
+impl Error for SpaceEmailError {
+    fn description(&self) -> &str {
+        match *self {
+            SpaceEmailError::Network(ref e) => e.description(),
+            SpaceEmailError::MalformedResponse(_) => "Recieved malformed response",
+            SpaceEmailError::Encoding(ref e) => e.description(),
+            SpaceEmailError::InvalidParameter => "Invalid parameter",
+            SpaceEmailError::RequiresLogin => "Operation requires a logged-in client"
+        }
+    }
+
+    fn cause(&self) -> Option<&Error> {
+        match *self {
+            SpaceEmailError::Network(ref e) => Some(e),
+            SpaceEmailError::Encoding(ref e) => Some(e),
+            _ => None,
+        }
+    }
 }
