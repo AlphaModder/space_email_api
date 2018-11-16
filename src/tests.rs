@@ -4,11 +4,10 @@ extern crate tokio_tls;
 
 use std::sync::Arc;
 use std::io;
-use std::str::FromStr;
 
 use futures::{future, Future};
 use hyper::Uri;
-use hyper::client::{Client, Connect, Service, HttpConnector};
+use hyper::client::{Service, HttpConnector};
 
 use self::tokio_core::reactor::Core;
 use self::tokio_core::net::TcpStream;
@@ -37,12 +36,12 @@ impl Service for HttpsConnector {
 
     fn call(&self, uri: Uri) -> Self::Future {
         if uri.scheme() != Some("https") {
-            return future::err(io::Error::new(io::ErrorKind::Other, "only works with https")).boxed()
+            return Box::new(future::err(io::Error::new(io::ErrorKind::Other, "only works with https")))
         }
 
         let host = match uri.host() {
             Some(s) => s.to_string(),
-            None => return future::err(io::Error::new(io::ErrorKind::Other, "missing host")).boxed()
+            None => return Box::new(future::err(io::Error::new(io::ErrorKind::Other, "missing host")))
         };
 
         let tls_cx = self.tls.clone();

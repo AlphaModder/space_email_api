@@ -4,6 +4,7 @@ version = "0.2.0"
 authors = ["AlphaModder"]
 description = "A rust interface to Space Email (space.galaxybuster.net)"
 license = "MIT"
+repository = "https://github.com/AlphaModder/space_email_api"
 
 [dependencies]
 hyper = "0.11.0"

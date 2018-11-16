@@ -102,7 +102,7 @@ impl<C: hyper::client::Connect> SpaceEmailClient<C> {
     }
 
     pub fn logout(&self) -> SpaceFuture<()> {
-        Box::new(self.make_request(&LOGOUT_ENDPOINT, &[]).map(move |r| { self.logged_in.set(false); }))
+        Box::new(self.make_request(&LOGOUT_ENDPOINT, &[]).map(move |_| { self.logged_in.set(false); }))
     }
 
     pub fn get_random(&self) -> SpaceFuture<SpaceEmail> {
