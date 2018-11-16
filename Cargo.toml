@@ -18,3 +18,5 @@ serde = { version = "1.0", optional = true, features = ["derive"] }
 
 [dev-dependencies]
 tokio-core = "0.1"
+native-tls = "0.1"
+tokio-tls = "0.1"
