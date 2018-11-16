@@ -8,6 +8,8 @@ Access to space email is facilitated by the `space_email_api::SpaceEmailClient` 
 
 ## Coming soon ##
 - More tests and debugging support.
+- Hyper 0.12 support, as soon as the typed headers situation is sorted out there.
+- Actual documentation.
 
 ## Changelog ##
 - *0.2.0*: I'm back and I know rust waaaaay better! Breaking changes abound.
@@ -21,5 +23,4 @@ Access to space email is facilitated by the `space_email_api::SpaceEmailClient` 
     - Rename `SpaceEmailClient::get_id` to `SpaceEmailClient::get_by_id`.
     - Add an (untested!) interface for starred emails. 
     - Update dependencies.
-    - TODO: Add documentation!
 - *0.1.1*:  Add Hash, Eq, etc. where appropriate and refactor accessibility of SpaceEmail fields to enforce their guarantees.

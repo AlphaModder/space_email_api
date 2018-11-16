@@ -10,10 +10,10 @@ repository = "https://github.com/AlphaModder/space_email_api"
 hyper = "0.11.0"
 futures = "0.1"
 chrono = "0.4"
-regex = "0.2"
+regex = "1.0"
 serde_json = "1.0"
 select = "0.4"
-url = "1.6"
+url = "1.0"
 lazy_static = "1.0"
 serde = { version = "1.0", optional = true, features = ["derive"] }
 
