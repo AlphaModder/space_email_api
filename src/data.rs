@@ -1,8 +1,6 @@
 use chrono;
-use hyper;
+use reqwest;
 use std::error::Error;
-use std::convert::From;
-use std::str::Utf8Error;
 use std::fmt;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -44,7 +42,20 @@ impl SpaceEmailStyle {
             SpaceEmailStyle::Admin => None,
         }
     }
-    
+}
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug)]
+pub struct EmailId { pub(crate) id: u32, pub(crate) style: SpaceEmailStyle }
+
+impl From<u32> for EmailId {
+    fn from(id: u32) -> EmailId {
+        EmailId { id, style: SpaceEmailStyle::Yellow }
+    }
+}
+
+impl Into<u32> for EmailId {
+    fn into(self) -> u32 { self.id }
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -65,8 +76,7 @@ pub struct SpaceEmail {
 }
 
 impl SpaceEmail {
-
-    pub fn id(&self) -> u32 { self.id }
+    pub fn id(&self) -> EmailId { EmailId { id: self.id, style: self.contents.style } }
 
     pub fn timestamp(&self) -> chrono::NaiveDateTime { self.timestamp }
 
@@ -75,7 +85,6 @@ impl SpaceEmail {
     pub fn share_id(&self) -> &str { &self.share_id }
 
     pub fn share_url(&self) -> String { format!("https://space.galaxybuster.net/shv.php?id={}", self.share_id) }
-
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -100,22 +109,15 @@ impl SpaceEmailRange {
 
 #[derive(Debug)]
 pub enum SpaceEmailError {
-    Network(hyper::Error),
+    Network(reqwest::Error),
     MalformedResponse(String),
-    Encoding(Utf8Error),
     InvalidParameter,
     RequiresLogin,
 }
 
-impl From<hyper::Error> for SpaceEmailError {
-    fn from(error: hyper::Error) -> SpaceEmailError {
+impl From<reqwest::Error> for SpaceEmailError {
+    fn from(error: reqwest::Error) -> SpaceEmailError {
         SpaceEmailError::Network(error)
-    }
-}
-
-impl From<Utf8Error> for SpaceEmailError {
-    fn from(error: Utf8Error) -> SpaceEmailError {
-        SpaceEmailError::Encoding(error)
     }
 }
 
@@ -124,7 +126,6 @@ impl fmt::Display for SpaceEmailError {
         match *self {
             SpaceEmailError::Network(ref e) => e.fmt(f),
             SpaceEmailError::MalformedResponse(ref s) => write!(f, "Recieved malformed response: {}", s),
-            SpaceEmailError::Encoding(ref e) => e.fmt(f),
             SpaceEmailError::InvalidParameter => write!(f, "Invalid parameter."),
             SpaceEmailError::RequiresLogin => write!(f, "Operation requires the client to be logged in to an account.")
         }
@@ -136,16 +137,14 @@ impl Error for SpaceEmailError {
         match *self {
             SpaceEmailError::Network(ref e) => e.description(),
             SpaceEmailError::MalformedResponse(_) => "Recieved malformed response",
-            SpaceEmailError::Encoding(ref e) => e.description(),
             SpaceEmailError::InvalidParameter => "Invalid parameter",
             SpaceEmailError::RequiresLogin => "Operation requires a logged-in client"
         }
     }
 
-    fn cause(&self) -> Option<&Error> {
+    fn cause(&self) -> Option<&dyn Error> {
         match *self {
             SpaceEmailError::Network(ref e) => Some(e),
-            SpaceEmailError::Encoding(ref e) => Some(e),
             _ => None,
         }
     }

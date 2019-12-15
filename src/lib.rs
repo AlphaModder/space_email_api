@@ -1,19 +1,8 @@
-#[macro_use] 
-extern crate lazy_static;
-extern crate chrono;
-extern crate hyper;
-extern crate futures;
-extern crate serde_json;
-extern crate select;
-extern crate url;
-extern crate regex;
-
-#[cfg(feature = "serde")]
-#[macro_use]
-extern crate serde;
+#![recursion_limit="512"]
 
 mod client;
 mod data;
+
 #[cfg(test)]
 mod tests;
 
