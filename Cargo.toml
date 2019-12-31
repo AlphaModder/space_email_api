@@ -1,6 +1,6 @@
 [package]
 name = "space_email_api"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2018"
 authors = ["AlphaModder"]
 description = "A rust interface to Space Email (space.galaxybuster.net)"
@@ -15,7 +15,7 @@ select = "0.4"
 chrono = "0.4"
 futures = "0.3.1"
 async-stream = "0.2.0"
-reqwest = { version = "0.10.0-alpha.2", features = ["cookies"] }
+reqwest = { version = "0.10.0", features = ["cookies"] }
 
 [dev-dependencies]
-tokio = "0.2.0-alpha.6"
+tokio = { version = "0.2.0", features = ["macros"] }
