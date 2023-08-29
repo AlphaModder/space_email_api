@@ -133,16 +133,7 @@ impl fmt::Display for SpaceEmailError {
 }
 
 impl Error for SpaceEmailError {
-    fn description(&self) -> &str {
-        match *self {
-            SpaceEmailError::Network(ref e) => e.description(),
-            SpaceEmailError::MalformedResponse(_) => "Recieved malformed response",
-            SpaceEmailError::InvalidParameter => "Invalid parameter",
-            SpaceEmailError::RequiresLogin => "Operation requires a logged-in client"
-        }
-    }
-
-    fn cause(&self) -> Option<&dyn Error> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         match *self {
             SpaceEmailError::Network(ref e) => Some(e),
             _ => None,

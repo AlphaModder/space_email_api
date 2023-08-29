@@ -152,8 +152,8 @@ impl SpaceEmailClient {
             ("type", &email.style.into_id().unwrap().to_string())
         ];
 
-        match self.client.post(SEND_ENDPOINT).form(&params).send().await?.text().await?.as_ref() {
-            "wrap success" => Ok(()),
+        match self.client.post(SEND_ENDPOINT).form(&params).send().await?.text().await? {
+            response if response.ends_with("wrap success") => Ok(()),
             _ => Err(SpaceEmailError::InvalidParameter),
         }
     }
