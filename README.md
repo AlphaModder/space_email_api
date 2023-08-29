@@ -11,6 +11,7 @@ Access to space email is facilitated by the `space_email_api::SpaceEmailClient` 
 - Documentation on types other than `SpaceEmailClient`, though they should be relatively self-explanatory.
 
 ## Changelog ##
+- *0.3.2* Update several dependencies and prevent stray PHP warning in the response from breaking `SpaceEmailClient::send`.
 - *0.3.1* Update `reqwest` and `tokio` from alphas to release versions.
 - *0.3.0*: Async-await support!
     - Drop `hyper` for `reqwest`, which handles a lot of stuff we previously had to think about automatically.
